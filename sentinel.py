@@ -172,7 +172,7 @@ class Tracker(gym.env):
 
         reward = 0
         if done:
-            reward = 0.0
+            reward = 10.0
         reward -= distance 
 
         rel_position_x, rel_position_y = self.get_rel_positions()
