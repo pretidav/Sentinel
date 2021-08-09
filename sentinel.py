@@ -9,6 +9,7 @@ from gym import spaces
 from gym.utils import seeding
 import math
 import pantilthat
+import time
 
 MAXDIST = np.sqrt(255**2+255**2)
 class Actor:
@@ -109,8 +110,10 @@ class A2CAgent:
             batch = np.append(batch, elem, axis=0)
         return batch
 
-class Tracker(gym.env,servo):
-    def __init__(self):
+class Tracker(gym.env):
+    def __init__(self,servo):
+        self.servo = servo()
+
         self.min_angle = -90.0
         self.max_angle =  90.0
 
@@ -146,8 +149,6 @@ class Tracker(gym.env,servo):
 
         self.seed()
         self.reset()
-
-        self.servo = servo()
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -255,4 +256,26 @@ class Servo():
                 
         return R
 
+def welcome():
+    msg = '# RL Tracker - START #'
+    print('#'*len(msg))
+    print(msg)
+    print('#'*len(msg))
+    return time.time()
+
+def bye(start_time):
+    tot=time.time() - start_time
+    msg='# RL Tracker - END - time:{} #'.format(tot)
+    print('#'*len(msg))
+    print(msg)
+    print('#'*len(msg))
+
+
 if __name__=='__main__':
+    start_time = welcome()    
+
+
+    TT = Tracker(servo=Servo)
+    
+    
+    bye(time=start_time)
