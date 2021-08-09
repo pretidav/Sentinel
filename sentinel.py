@@ -11,7 +11,7 @@ import math
 import pantilthat
 import time
 
-MAXDIST = np.sqrt(255**2+255**2)
+MAXDIST = np.sqrt(2)*255
 class Actor:
     def __init__(self, state_dim, action_dim, action_bound, std_bound):
         self.state_dim = state_dim
