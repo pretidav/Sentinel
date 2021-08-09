@@ -275,7 +275,7 @@ if __name__=='__main__':
     start_time = welcome()    
 
 
-    TT = Tracker(servo=Servo)
-    
+    Env   = Tracker(servo=Servo)
+    agent = A2CAgent(env=Env)
     
     bye(time=start_time)
