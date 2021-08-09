@@ -8,6 +8,7 @@ import gym
 from gym import spaces
 from gym.utils import seeding
 import math
+import pantilthat
 
 class Actor:
     def __init__(self, state_dim, action_dim, action_bound, std_bound):
@@ -109,8 +110,8 @@ class A2CAgent:
 
 class Tracker(gym.env):
     def __init__(self):
-        self.min_angle = 0.0
-        self.max_angle = 90.0
+        self.min_angle = -90.0
+        self.max_angle =  90.0
 
         self.min_position = 0.0
         self.max_position = 100
@@ -149,24 +150,21 @@ class Tracker(gym.env):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
-    def step(self, action):
+    def get_rel_positions(self):
+        #### writeme
+        rel_x = 0
+        rel_y = 0
+        return rel_x, rel_y
 
+    def step(self, action):
+       
         rel_position_x = self.state[0]
         rel_position_y = self.state[1]
-        
-        # new_x += rel_position_x
-        # if velocity > self.max_speed:
-        #     velocity = self.max_speed
-        # if velocity < -self.max_speed:
-        #     velocity = -self.max_speed
-        # position += velocity
-        # if position > self.max_position:
-        #     position = self.max_position
-        # if position < self.min_position:
-        #     position = self.min_position
-        # if position == self.min_position and velocity < 0:
-        #     velocity = 0
 
+        new_theta = min(max(action[0], self.min_action), self.max_action)
+        new_phi   = min(max(action[1], self.min_action), self.max_action)
+        pantilthat.pan(new_theta)
+        pantilthat.tilt(new_phi)
 
         tolerance = 0.1
         distance = np.sqrt(math.pow(rel_position_x[0], 2) + math.pow(rel_position_y[1], 2))
@@ -177,11 +175,12 @@ class Tracker(gym.env):
             reward = 0.0
         reward -= distance 
 
+        rel_position_x, rel_position_y = self.get_rel_positions()
         self.state = np.array([rel_position_x, rel_position_y])
         return self.state, reward, done, {}
 
     def reset(self):
-        self.state = np.array([self.np_random.uniform(low=-0.6, high=-0.4), 0])
+        self.state = np.array([self.np_random.uniform(low=-90.0, high=90.0), self.np_random.uniform(low=-90.0, high=90.0)])
         return np.array(self.state)
 
 
