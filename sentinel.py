@@ -10,6 +10,7 @@ from gym.utils import seeding
 import math
 import pantilthat
 
+MAXDIST = np.sqrt(255**2+255**2)
 class Actor:
     def __init__(self, state_dim, action_dim, action_bound, std_bound):
         self.state_dim = state_dim
@@ -108,7 +109,7 @@ class A2CAgent:
             batch = np.append(batch, elem, axis=0)
         return batch
 
-class Tracker(gym.env):
+class Tracker(gym.env,servo):
     def __init__(self):
         self.min_angle = -90.0
         self.max_angle =  90.0
@@ -145,6 +146,8 @@ class Tracker(gym.env):
 
         self.seed()
         self.reset()
+
+        self.servo = servo()
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -184,3 +187,72 @@ class Tracker(gym.env):
         return np.array(self.state)
 
 
+class Servo():
+    def __init__(self):
+        self.pan  = 0 
+        self.tilt = 0
+        self.pan, self.tilt = self.wake_up()
+
+    def wake_up(self):
+        pan = 0
+        tilt = 0
+        pantilthat.pan(pan)
+        pantilthat.tilt(tilt)
+        return pan, tilt
+
+    def distance(self,
+                roi,
+                panAngle=0,
+                tiltAngle=0,
+                frame_w=255,
+                frame_h=255):
+
+        (x, y, w, h) = tuple(map(int,roi))
+        center_x = x+w/2
+        center_y = y+h/2
+        print('target_X, target_Y = {},{}'.format(center_x,center_y))
+        print('center_X, center_Y = {},{}'.format(frame_w,frame_h))
+        print('pan,tilt = {},{}'.format(panAngle,tiltAngle))
+        return center_x-255/2, center_y-255/2
+
+    def get_pan_tilt(self):
+        pan  = pantilthat.get_pan()
+        tilt = pantilthat.get_tilt()
+        return pan, tilt
+
+    def target(self):
+        R = -1
+        pan, tilt = self.get_pan_tilt()
+        cap = cv2.VideoCapture(0)
+
+        width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        tracker      = cv2.TrackerMedianFlow_create()
+        face_cascade = cv2.CascadeClassifier('./haarcascades/haarcascade_frontalface_default.xml')
+
+        ret, frame = cap.read()
+        frame = cv2.flip(frame, 0)
+        roi   = face_cascade.detectMultiScale(frame,
+                                            scaleFactor=1.2, 
+                                            minNeighbors=5) 
+        count = 0
+        for (x, y, w, h) in roi: 
+            tracker.init(frame,(x, y, w, h))
+  
+        ret, frame = cap.read()
+        frame = cv2.flip(frame, 0)
+        count += int(ret)
+        
+        success, roi = tracker.update(frame)
+        (x,y,w,h) = tuple(map(int,roi))
+
+        if success:
+            p1 = (x, y)
+            p2 = (x+w, y+h)
+            cv2.rectangle(frame, p1, p2, (0,255,0), 3)
+            R = self.distance(roi,pan,tilt,width,height)
+                
+        return R
+
+if __name__=='__main__':
