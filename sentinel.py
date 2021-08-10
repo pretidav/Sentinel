@@ -32,6 +32,7 @@ class Actor:
         dense = tf.keras.layers.Dense(5, activation='relu')(state_input)
         for l in range(1,layers-1):
             dense = tf.keras.layers.Dense(10, activation='relu')(dense)
+        
         out_mu = tf.keras.layers.Dense(self.action_dim, activation='tanh')(dense)
         mu_output = tf.keras.layers.Lambda(lambda x: rescale(x))(out_mu)
         std_output = tf.keras.layers.Dense(self.action_dim, activation='softplus')(dense) 
@@ -85,11 +86,10 @@ class Critic:
 
 
 class A2CAgent:
-    def __init__(self, env):
-        self.env = env
+    def __init__(self, action_space_shape, action_space_high):
         self.state_dim = 2 
-        self.action_dim = self.env.action_space.shape[0]
-        self.action_bound = self.env.action_space.high[0]
+        self.action_dim = action_space_shape
+        self.action_bound = action_space_high
         self.std_bound = [1e-3, 1.0]
         self.gamma = 0.99
         self.actor = Actor(self.state_dim, self.action_dim,
@@ -113,8 +113,7 @@ class A2CAgent:
         return batch
 
 class Tracker(gym.Env):
-    def __init__(self,servo):
-        self.servo = servo()
+    def __init__(self,Agent):
 
         self.min_action = -90.0
         self.max_action =  90.0
@@ -126,10 +125,10 @@ class Tracker(gym.Env):
         )
         
         self.low_state = np.array(
-            [self.min_position, self.min_position], dtype=np.float32
+            [self.min_position, self.min_position, self.min_position, self.min_position], dtype=np.float32
         )
         self.high_state = np.array(
-            [self.max_position, self.max_position], dtype=np.float32
+            [self.max_position, self.max_position, self.max_position ,self.max_position], dtype=np.float32
         )
 
         self.low_action = np.array(
@@ -146,26 +145,27 @@ class Tracker(gym.Env):
             low=self.min_action, high=self.max_action, shape=(1,), dtype=np.float32
         )
         self.observation_space = spaces.Box(
-            low=self.low_state, high=self.high_state, shape=(2,), dtype=np.float32
+            low=self.low_state, high=self.high_state, shape=(4,), dtype=np.float32
         )
 
         self.seed()
         self.reset()
+        self.servo = self.Servo(Agent,action_space_shape=self.action_space.shape[0],action_space_high=self.action_space.high[0])
+
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
-    def get_rel_positions(self):
-        #### writeme
-        rel_x = 0
-        rel_y = 0
-        return rel_x, rel_y
+    def initialize_state(self):
+        self.state=np.array([0,0,0,0])
 
     def step(self, action):
         
         rel_position_x = self.state[0]
         rel_position_y = self.state[1]
+        box_w          = self.state[2]
+        box_h          = self.state[3]
 
         new_theta = min(max(action[0], self.min_action), self.max_action)
         new_phi   = min(max(action[1], self.min_action), self.max_action)
@@ -181,101 +181,112 @@ class Tracker(gym.Env):
             reward = 10.0
         reward -= distance 
 
-        rel_position_x, rel_position_y = self.servo.target()
-        self.state = np.array([rel_position_x, rel_position_y])
+        rel_position_x, rel_position_y, box_w, box_h = self.servo.target()
+        self.state = np.array([rel_position_x, rel_position_y, box_w, box_w])
         return self.state, reward, done, {}
 
     def reset(self):
-        self.state = np.array([self.np_random.uniform(low=-90.0, high=90.0), self.np_random.uniform(low=-90.0, high=90.0)])
+        self.state = np.array([self.np_random.uniform(low=0.0, high=255.0),
+                               self.np_random.uniform(low=0.0, high=255.0),
+                               self.np_random.uniform(low=0.0, high=255.0),
+                               self.np_random.uniform(low=0.0, high=255.0)])
+
         return np.array(self.state)
 
-
-class Servo():
-    def __init__(self):
-        self.pan  = 0 
-        self.tilt = 0
-        self.pan, self.tilt = self.wake_up()
-
-    def wake_up(self):
-        pan = 0
-        tilt = 0
-        #pantilthat.pan(pan)
-        #pantilthat.tilt(tilt)
-        return pan, tilt
-
-    def get_coordinates(self,
-                frame,
-                roi,
-                panAngle=0,
-                tiltAngle=0,
-                frame_w=255,
-                frame_h=255):
-
-        (x, y, w, h) = tuple(map(int,roi))
-        center_x = x+round(w/2)
-        center_y = y+round(h/2)
-        
-        cv2.circle(frame,(int(center_x),int(center_y)), 3, (0,0,255), -1)
-        cv2.circle(frame,(round(frame_w/2),round(frame_h/2)), 3, (255,0,0), -1)
-
-        print('target_X, target_Y = {},{}'.format(center_x,center_y))
-        print('center_X, center_Y = {},{}'.format(frame_w/2,frame_h/2))
-        print('pan,tilt = {},{}'.format(panAngle,tiltAngle))
-        return center_x-frame_w/2, center_y-frame_h/2
-
-    def get_pan_tilt(self):
-        pan  = 0 #pantilthat.get_pan()
-        tilt = 0 #pantilthat.get_tilt()
-        return pan, tilt
-
-    def cam_show(self,frame):
-        cv2.imshow('frame',frame)
-
-    def target(self,flip=False):
-        rel_x, rel_y = 0.0, 0.0
-        pan, tilt = self.get_pan_tilt()
-        cap = cv2.VideoCapture(-1)
-
-        width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-        print(width,height)
-
-        tracker      = cv2.legacy.TrackerMedianFlow_create()
-        face_cascade = cv2.CascadeClassifier('./haarcascades/haarcascade_frontalface_default.xml')
-
-        while True:
-            ret, frame = cap.read()
+    class Servo():
+        def __init__(self,agent,action_space_shape,action_space_high):
+            self.pan  = 0 
+            self.tilt = 0
+            self.pan, self.tilt = self.wake_up()
+            self.agent = agent(action_space_shape,action_space_high)
             
-            roi   = face_cascade.detectMultiScale(frame,
-                                                scaleFactor=1.2, 
-                                                minNeighbors=5) 
+        def wake_up(self):
+            pan = 0
+            tilt = 0
+            #pantilthat.pan(pan)
+            #pantilthat.tilt(tilt)
+            return pan, tilt
 
-            count = 0
-            for (x, y, w, h) in roi: 
-                tracker.init(frame,(x, y, w, h))
-    
-            ret, frame = cap.read()
+        def get_coordinates(self,
+                    frame,
+                    roi,
+                    panAngle=0,
+                    tiltAngle=0,
+                    frame_w=255,
+                    frame_h=255,
+                    show=True):
 
-            count += int(ret)
+            (x, y, w, h) = tuple(map(int,roi))
+            center_x = x+round(w/2)
+            center_y = y+round(h/2)
             
-            success, roi = tracker.update(frame)
-            (x,y,w,h) = tuple(map(int,roi))
-            print(success)
-            if success:
-                p1 = (x, y)
-                p2 = (x+w, y+h)
-                cv2.rectangle(frame, p1, p2, (0,255,0), 3)
-                rel_x, rel_y = self.get_coordinates(frame,roi,pan,tilt,width,height)
+            if show:
+                cv2.circle(frame,(int(center_x),int(center_y)), 3, (0,0,255), -1)
+                cv2.circle(frame,(round(frame_w/2),round(frame_h/2)), 3, (255,0,0), -1)
+                cv2.line(frame, (center_x,center_y), (round(frame_w/2),round(frame_h/2)), (150,150,150), 2)
+
+            print('target_X, target_Y = {},{}'.format(center_x,center_y))
+            print('center_X, center_Y = {},{}'.format(frame_w/2,frame_h/2))
+            print('pan,tilt = {},{}'.format(panAngle,tiltAngle))
+            return center_x-frame_w/2, center_y-frame_h/2
+
+        def get_pan_tilt(self):
+            pan  = 0 #pantilthat.get_pan()
+            tilt = 0 #pantilthat.get_tilt()
+            return pan, tilt
+
+        def cam_show(self,frame):
+            cv2.imshow('frame',frame)
+
+        def target(self,Nsteps=100,flip=False):
+            rel_x, rel_y = 0.0, 0.0
+            pan, tilt = self.get_pan_tilt()
+            cap = cv2.VideoCapture(-1)
+
+            width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            print(width,height)
+
+            tracker      = cv2.legacy.TrackerMedianFlow_create()
+            face_cascade = cv2.CascadeClassifier('./haarcascades/haarcascade_frontalface_default.xml')
+            
+            roi = (0,0,0,0)
+
+            for n in range(Nsteps):
+                print('## Step: {} ##'.format(n))
+
+                _ , frame = cap.read()
                 
-            if flip:
-                frame = cv2.flip(frame, 0);
-            self.cam_show(frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                cap.release()
-                cv2.destroyAllWindows()
-                break
-        return rel_x, rel_y
+                if roi==(0,0,0,0):
+                    roi   = face_cascade.detectMultiScale(frame,
+                                                        scaleFactor=1.2, 
+                                                        minNeighbors=5) 
+                    for (x, y, w, h) in roi: 
+                        tracker.init(frame,(x, y, w, h))
+                
+                success, roi = tracker.update(frame)
+                (x,y,w,h) = tuple(map(int,roi))
+
+                print('tracking: {}'.format(success))
+
+                if success:
+                    p1 = (x, y)
+                    p2 = (x+w, y+h)
+                    cv2.rectangle(frame, p1, p2, (0,255,0), 3)
+                    rel_x, rel_y = self.get_coordinates(frame,roi,pan,tilt,width,height)
+
+
+                if flip:
+                    frame = cv2.flip(frame, 0)
+
+                self.cam_show(frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    cap.release()
+                    cv2.destroyAllWindows()
+                    break
+
+            return rel_x, rel_y, w, h
 
 def welcome():
     msg = '# RL Tracker - START #'
@@ -296,13 +307,12 @@ if __name__=='__main__':
     start_time = welcome()    
 
 
-    Env   = Tracker(servo=Servo)
-    agent = A2CAgent(env=Env)
+    Env = Tracker(Agent=A2CAgent)
     
-    print(Env.action_space)
-    print(Env.observation_space)
-    print(Env.servo.target())
-
-
+    print('Action space: {}'.format(Env.action_space))
+    print('State  space: {}'.format(Env.observation_space))
+    
+    Env.initialize_state()
+    Env.servo.target()
 
     bye(start_time=start_time)
