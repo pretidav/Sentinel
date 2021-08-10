@@ -1,4 +1,4 @@
-from numpy.core.fromnumeric import shape
+
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
@@ -12,6 +12,11 @@ import math
 import cv2
 #import pantilthat
 import time
+import signal
+import time
+import readchar
+ 
+
 
 MAXDIST = np.sqrt(2)*255
 class Actor:
@@ -259,8 +264,8 @@ class Tracker(gym.Env):
             face_cascade = cv2.CascadeClassifier('./haarcascades/haarcascade_frontalface_default.xml')
             
             roi = (0,0,0,0)
-
-            for n in range(Nsteps):
+            success = False
+            while not success:
                 print('## Step: {} ##'.format(n))
 
                 _ , frame = cap.read()
@@ -282,7 +287,6 @@ class Tracker(gym.Env):
                     p2 = (x+w, y+h)
                     cv2.rectangle(frame, p1, p2, (0,255,0), 3)
                     rel_x, rel_y = self.get_coordinates(frame,roi,pan,tilt,width,height)
-
 
                 if flip:
                     frame = cv2.flip(frame, 0)
@@ -312,7 +316,6 @@ def bye(start_time):
 
 if __name__=='__main__':
     start_time = welcome()    
-    batch_size = 1
 
     Env = Tracker(Agent=A2CAgent)
     
@@ -322,56 +325,74 @@ if __name__=='__main__':
     Env.servo.agent.critic.model.summary()
 
     Env.initialize_state()
-
-    state_batch = []
-    action_batch = []
-    td_target_batch = []
-    advantage_batch = []
-    episode_reward, done = 0, False
-    state = Env.servo.target(Nsteps=5)
-    print(state,episode_reward)
-    action = Env.servo.agent.actor.get_action(state)
-    action = np.clip(action, -Env.servo.agent.action_bound, Env.servo.agent.action_bound)
-    print(action)
-    next_state, reward, done, _ = Env.step(action=[action[0],0])
-    print(next_state, reward)
-
-    state = np.reshape(state, [1, Env.servo.agent.state_dim])
-    action = np.reshape(action, [1, Env.servo.agent.action_dim])
-    next_state = np.reshape(next_state, [1, Env.servo.agent.state_dim])
-    reward = np.reshape(reward, [1, 1])
-
-    td_target = Env.servo.agent.td_target(
-        reward, next_state, done)
-    advantage = Env.servo.agent.advantage(
-        td_target, Env.servo.agent.critic.model.predict(state))
-
-    state_batch.append(state)
-    action_batch.append(action)
-    td_target_batch.append(td_target)
-    advantage_batch.append(advantage)
-
-    if len(state_batch) >= batch_size or done:    
-        states = Env.servo.agent.list_to_batch(state_batch)
-        actions = Env.servo.agent.list_to_batch(action_batch)
-        td_targets = Env.servo.agent.list_to_batch(td_target_batch)
-        advantages = Env.servo.agent.list_to_batch(advantage_batch)
-        actor_loss = Env.servo.agent.actor.train(states, actions, advantages)
-        critic_loss = Env.servo.agent.critic.train(states, td_targets)
-
-        print(actor_loss)
-        print(critic_loss)
-
+    num_of_episodes = 10
+    batch_size = 2
+    
+    for episodes in tqdm(range(num_of_episodes)):
+        
         state_batch = []
         action_batch = []
         td_target_batch = []
         advantage_batch = []
+        episode_reward, done = 0, False
+        state = Env.servo.target(Nsteps=5)
+        print(state,episode_reward)
+        action = Env.servo.agent.actor.get_action(state)
+        action = np.clip(action, -Env.servo.agent.action_bound, Env.servo.agent.action_bound)
+        print(action)
+        next_state, reward, done, _ = Env.step(action=[action[0],0])
+        print(next_state, reward)
 
-    episode_reward += reward[0][0]
-    state = next_state[0]
+        state = np.reshape(state, [1, Env.servo.agent.state_dim])
+        action = np.reshape(action, [1, Env.servo.agent.action_dim])
+        next_state = np.reshape(next_state, [1, Env.servo.agent.state_dim])
+        reward = np.reshape(reward, [1, 1])
 
-    
+        td_target = Env.servo.agent.td_target(
+            reward, next_state, done)
+        advantage = Env.servo.agent.advantage(
+            td_target, Env.servo.agent.critic.model.predict(state))
+
+        state_batch.append(state)
+        action_batch.append(action)
+        td_target_batch.append(td_target)
+        advantage_batch.append(advantage)
+
+        if len(state_batch) >= batch_size or done:    
+            states = Env.servo.agent.list_to_batch(state_batch)
+            actions = Env.servo.agent.list_to_batch(action_batch)
+            td_targets = Env.servo.agent.list_to_batch(td_target_batch)
+            advantages = Env.servo.agent.list_to_batch(advantage_batch)
+            actor_loss = Env.servo.agent.actor.train(states, actions, advantages)
+            critic_loss = Env.servo.agent.critic.train(states, td_targets)
+
+            print(actor_loss)
+            print(critic_loss)
+
+            state_batch = []
+            action_batch = []
+            td_target_batch = []
+            advantage_batch = []
+
+        episode_reward += reward[0][0]
+        state = next_state[0]
+
+        def handler(signum, frame):
+            msg = "Ctrl-c was pressed. Do you want to save models? y/n "
+            print(msg, end="", flush=True)
+            res = readchar.readchar()
+            if res == 'y':
+                Env.servo.agent.actor.model.save('./models/actorA2C.hdf5',overwrite=True,include_optimizer=False)
+                Env.servo.agent.critic.model.save('./models/criticA2C.hdf5',overwrite=True,include_optimizer=False)
+                print("")
+                exit(1)
+            else:
+                print("", end="\r", flush=True)
+                print(" " * len(msg), end="", flush=True) # clear the printed line
+                print("    ", end="\r", flush=True)
+        
+        signal.signal(signal.SIGINT, handler)
+
     Env.servo.agent.actor.model.save('./models/actorA2C.hdf5',overwrite=True,include_optimizer=False)
     Env.servo.agent.critic.model.save('./models/criticA2C.hdf5',overwrite=True,include_optimizer=False)
-    
     bye(start_time=start_time)

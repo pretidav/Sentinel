@@ -7,3 +7,4 @@ progressbar==2.5
 tensorflow-probability==0.11.0
 pantilthat==0.0.7
 opencv-contrib-python==4.5.3.56
+readchar==3.0.4
