@@ -38,16 +38,24 @@ class Actor:
         for l in range(1,layers-1):
             dense = tf.keras.layers.Dense(10, activation='relu')(dense)
         
-        out_mu = tf.keras.layers.Dense(self.action_dim, activation='tanh')(dense)
-        mu_output = tf.keras.layers.Lambda(lambda x: rescale(x))(out_mu)
-        std_output = tf.keras.layers.Dense(self.action_dim, activation='softplus')(dense) 
-        return tf.keras.models.Model(state_input, [mu_output, std_output])
+        out_mu_1 = tf.keras.layers.Dense(self.action_dim, activation='tanh')(dense)
+        mu_output_1 = tf.keras.layers.Lambda(lambda x: rescale(x))(out_mu_1)
+        std_output_1 = tf.keras.layers.Dense(self.action_dim, activation='softplus')(dense)
+
+        out_mu_2 = tf.keras.layers.Dense(self.action_dim, activation='tanh')(dense)
+        mu_output_2 = tf.keras.layers.Lambda(lambda x: rescale(x))(out_mu_2)
+        std_output_2 = tf.keras.layers.Dense(self.action_dim, activation='softplus')(dense)
+        
+        return tf.keras.models.Model(state_input, [mu_output_1, std_output_1, mu_output_2, std_output_2])
 
     def get_action(self, state):
         state = np.reshape(state, [1, self.state_dim])
-        mu, std = self.model.predict(state)
-        mu, std = mu[0], std[0]
-        return np.random.normal(mu, std, size=self.action_dim)
+        mu1, std1, mu2, std2 = self.model.predict(state)
+        mu1, std1 = mu1[0], std1[0]
+        mu2, std2 = mu2[0], std2[0]
+        action1 = np.random.normal(mu1, std1, size=self.action_dim)
+        action2 = np.random.normal(mu2, std2, size=self.action_dim)
+        return [action1, action2]  
 
     def compute_loss(self, mu, std, actions, advantages):
         dist = tfp.distributions.Normal(loc=mu, scale=std)
@@ -177,7 +185,7 @@ class Tracker(gym.Env):
         box_h          = self.state[3]
 
         new_theta = min(max(action[0], self.min_action), self.max_action)
-        new_phi   = 0 #min(max(action[1], self.min_action), self.max_action) #changeme
+        new_phi   = min(max(action[1], self.min_action), self.max_action) 
         #pantilthat.pan(new_theta)
         #pantilthat.tilt(new_phi)
 
@@ -222,8 +230,8 @@ class Tracker(gym.Env):
         def get_coordinates(self,
                     frame,
                     roi,
-                    panAngle=0,
-                    tiltAngle=0,
+                    panAngle,
+                    tiltAngle,
                     frame_w=255,
                     frame_h=255,
                     show=True):
@@ -266,7 +274,6 @@ class Tracker(gym.Env):
             roi = (0,0,0,0)
             success = False
             while not success:
-                print('## Step: {} ##'.format(n))
 
                 _ , frame = cap.read()
                 
@@ -340,11 +347,11 @@ if __name__=='__main__':
         action = Env.servo.agent.actor.get_action(state)
         action = np.clip(action, -Env.servo.agent.action_bound, Env.servo.agent.action_bound)
         print(action)
-        next_state, reward, done, _ = Env.step(action=[action[0],0])
+        next_state, reward, done, _ = Env.step(action=action)
         print(next_state, reward)
 
         state = np.reshape(state, [1, Env.servo.agent.state_dim])
-        action = np.reshape(action, [1, Env.servo.agent.action_dim])
+        action = np.reshape(action, [1, Env.servo.agent.action_dim*2])
         next_state = np.reshape(next_state, [1, Env.servo.agent.state_dim])
         reward = np.reshape(reward, [1, 1])
 
