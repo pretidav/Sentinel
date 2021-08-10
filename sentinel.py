@@ -312,7 +312,7 @@ def bye(start_time):
 
 if __name__=='__main__':
     start_time = welcome()    
-
+    batch_size = 1
 
     Env = Tracker(Agent=A2CAgent)
     
@@ -335,4 +335,43 @@ if __name__=='__main__':
     print(action)
     next_state, reward, done, _ = Env.step(action=[action[0],0])
     print(next_state, reward)
+
+    state = np.reshape(state, [1, Env.servo.agent.state_dim])
+    action = np.reshape(action, [1, Env.servo.agent.action_dim])
+    next_state = np.reshape(next_state, [1, Env.servo.agent.state_dim])
+    reward = np.reshape(reward, [1, 1])
+
+    td_target = Env.servo.agent.td_target(
+        reward, next_state, done)
+    advantage = Env.servo.agent.advantage(
+        td_target, Env.servo.agent.critic.model.predict(state))
+
+    state_batch.append(state)
+    action_batch.append(action)
+    td_target_batch.append(td_target)
+    advantage_batch.append(advantage)
+
+    if len(state_batch) >= batch_size or done:    
+        states = Env.servo.agent.list_to_batch(state_batch)
+        actions = Env.servo.agent.list_to_batch(action_batch)
+        td_targets = Env.servo.agent.list_to_batch(td_target_batch)
+        advantages = Env.servo.agent.list_to_batch(advantage_batch)
+        actor_loss = Env.servo.agent.actor.train(states, actions, advantages)
+        critic_loss = Env.servo.agent.critic.train(states, td_targets)
+
+        print(actor_loss)
+        print(critic_loss)
+
+        state_batch = []
+        action_batch = []
+        td_target_batch = []
+        advantage_batch = []
+
+    episode_reward += reward[0][0]
+    state = next_state[0]
+
+    
+    Env.servo.agent.actor.model.save('./models/actorA2C.hdf5',overwrite=True,include_optimizer=False)
+    Env.servo.agent.critic.model.save('./models/criticA2C.hdf5',overwrite=True,include_optimizer=False)
+    
     bye(start_time=start_time)
