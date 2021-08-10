@@ -203,7 +203,8 @@ class Servo():
         #pantilthat.tilt(tilt)
         return pan, tilt
 
-    def get_rel_coordinates(self,
+    def get_coordinates(self,
+                frame,
                 roi,
                 panAngle=0,
                 tiltAngle=0,
@@ -211,10 +212,14 @@ class Servo():
                 frame_h=255):
 
         (x, y, w, h) = tuple(map(int,roi))
-        center_x = x+w/2
-        center_y = y+h/2
+        center_x = x+round(w/2)
+        center_y = y+round(h/2)
+        
+        cv2.circle(frame,(int(center_x),int(center_y)), 3, (0,0,255), -1)
+        cv2.circle(frame,(round(frame_w/2),round(frame_h/2)), 3, (255,0,0), -1)
+
         print('target_X, target_Y = {},{}'.format(center_x,center_y))
-        print('center_X, center_Y = {},{}'.format(frame_w,frame_h))
+        print('center_X, center_Y = {},{}'.format(frame_w/2,frame_h/2))
         print('pan,tilt = {},{}'.format(panAngle,tiltAngle))
         return center_x-frame_w/2, center_y-frame_h/2
 
@@ -226,10 +231,10 @@ class Servo():
     def cam_show(self,frame):
         cv2.imshow('frame',frame)
 
-    def target(self):
+    def target(self,flip=False):
         rel_x, rel_y = 0.0, 0.0
         pan, tilt = self.get_pan_tilt()
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(-1)
 
         width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -239,31 +244,37 @@ class Servo():
         tracker      = cv2.legacy.TrackerMedianFlow_create()
         face_cascade = cv2.CascadeClassifier('./haarcascades/haarcascade_frontalface_default.xml')
 
-        ret, frame = cap.read()
+        while True:
+            ret, frame = cap.read()
+            
+            roi   = face_cascade.detectMultiScale(frame,
+                                                scaleFactor=1.2, 
+                                                minNeighbors=5) 
 
-        frame = cv2.flip(frame, 0)
-        roi   = face_cascade.detectMultiScale(frame,
-                                            scaleFactor=1.2, 
-                                            minNeighbors=5) 
+            count = 0
+            for (x, y, w, h) in roi: 
+                tracker.init(frame,(x, y, w, h))
+    
+            ret, frame = cap.read()
 
-        count = 0
-        for (x, y, w, h) in roi: 
-            tracker.init(frame,(x, y, w, h))
-  
-        ret, frame = cap.read()
-        frame = cv2.flip(frame, 0)
-        count += int(ret)
-        
-        success, roi = tracker.update(frame)
-        (x,y,w,h) = tuple(map(int,roi))
-        print(success)
-        if success:
-            p1 = (x, y)
-            p2 = (x+w, y+h)
-            cv2.rectangle(frame, p1, p2, (0,255,0), 3)
-            rel_x, rel_y = self.get_rel_coordinates(roi,pan,tilt,width,height)
-            while True:
-                self.cam_show(frame)
+            count += int(ret)
+            
+            success, roi = tracker.update(frame)
+            (x,y,w,h) = tuple(map(int,roi))
+            print(success)
+            if success:
+                p1 = (x, y)
+                p2 = (x+w, y+h)
+                cv2.rectangle(frame, p1, p2, (0,255,0), 3)
+                rel_x, rel_y = self.get_coordinates(frame,roi,pan,tilt,width,height)
+                
+            if flip:
+                frame = cv2.flip(frame, 0);
+            self.cam_show(frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                cap.release()
+                cv2.destroyAllWindows()
+                break
         return rel_x, rel_y
 
 def welcome():
