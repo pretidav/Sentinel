@@ -86,8 +86,8 @@ class Critic:
 
 
 class A2CAgent:
-    def __init__(self, action_space_shape, action_space_high):
-        self.state_dim = 2 
+    def __init__(self, observation_space_shape, action_space_shape, action_space_high):
+        self.state_dim = observation_space_shape 
         self.action_dim = action_space_shape
         self.action_bound = action_space_high
         self.std_bound = [1e-3, 1.0]
@@ -132,10 +132,10 @@ class Tracker(gym.Env):
         )
 
         self.low_action = np.array(
-            [self.min_action, self.min_action], dtype=np.float32
+            [self.min_action], dtype=np.float32
         )
         self.high_action = np.array(
-            [self.max_action, self.max_action], dtype=np.float32
+            [self.max_action], dtype=np.float32
         )
 
 
@@ -150,7 +150,10 @@ class Tracker(gym.Env):
 
         self.seed()
         self.reset()
-        self.servo = self.Servo(Agent,action_space_shape=self.action_space.shape[0],action_space_high=self.action_space.high[0])
+        self.servo = self.Servo(Agent,
+                                observation_space_shape=self.observation_space.shape[0],
+                                action_space_shape=self.action_space.shape[0],
+                                action_space_high=self.action_space.high[0])
 
 
     def seed(self, seed=None):
@@ -161,19 +164,20 @@ class Tracker(gym.Env):
         self.state=np.array([0,0,0,0])
 
     def step(self, action):
-        
+        self.state=np.array(self.servo.target(Nsteps=1))
+
         rel_position_x = self.state[0]
         rel_position_y = self.state[1]
         box_w          = self.state[2]
         box_h          = self.state[3]
 
         new_theta = min(max(action[0], self.min_action), self.max_action)
-        new_phi   = min(max(action[1], self.min_action), self.max_action)
+        new_phi   = 0 #min(max(action[1], self.min_action), self.max_action) #changeme
         #pantilthat.pan(new_theta)
         #pantilthat.tilt(new_phi)
 
         tolerance = 0.1
-        distance = np.sqrt(math.pow(rel_position_x[0], 2) + math.pow(rel_position_y[1], 2))
+        distance = np.sqrt(math.pow(rel_position_x, 2) + math.pow(rel_position_y, 2))
         done = bool(distance <= tolerance)
 
         reward = 0
@@ -181,8 +185,11 @@ class Tracker(gym.Env):
             reward = 10.0
         reward -= distance 
 
-        rel_position_x, rel_position_y, box_w, box_h = self.servo.target()
-        self.state = np.array([rel_position_x, rel_position_y, box_w, box_w])
+        self.state = np.array(self.servo.target(Nsteps=1))
+        print('state {}'.format(self.state))
+        print('reward {}'.format(reward))
+        print('done {}'.format(done))
+
         return self.state, reward, done, {}
 
     def reset(self):
@@ -194,11 +201,11 @@ class Tracker(gym.Env):
         return np.array(self.state)
 
     class Servo():
-        def __init__(self,agent,action_space_shape,action_space_high):
+        def __init__(self,agent,observation_space_shape,action_space_shape,action_space_high):
             self.pan  = 0 
             self.tilt = 0
             self.pan, self.tilt = self.wake_up()
-            self.agent = agent(action_space_shape,action_space_high)
+            self.agent = agent(observation_space_shape,action_space_shape,action_space_high)
             
         def wake_up(self):
             pan = 0
@@ -225,9 +232,9 @@ class Tracker(gym.Env):
                 cv2.circle(frame,(round(frame_w/2),round(frame_h/2)), 3, (255,0,0), -1)
                 cv2.line(frame, (center_x,center_y), (round(frame_w/2),round(frame_h/2)), (150,150,150), 2)
 
-            print('target_X, target_Y = {},{}'.format(center_x,center_y))
-            print('center_X, center_Y = {},{}'.format(frame_w/2,frame_h/2))
-            print('pan,tilt = {},{}'.format(panAngle,tiltAngle))
+            #print('target_X, target_Y = {},{}'.format(center_x,center_y))
+            #print('center_X, center_Y = {},{}'.format(frame_w/2,frame_h/2))
+            #print('pan,tilt = {},{}'.format(panAngle,tiltAngle))
             return center_x-frame_w/2, center_y-frame_h/2
 
         def get_pan_tilt(self):
@@ -311,8 +318,21 @@ if __name__=='__main__':
     
     print('Action space: {}'.format(Env.action_space))
     print('State  space: {}'.format(Env.observation_space))
-    
-    Env.initialize_state()
-    Env.servo.target()
+    Env.servo.agent.actor.model.summary()
+    Env.servo.agent.critic.model.summary()
 
+    Env.initialize_state()
+
+    state_batch = []
+    action_batch = []
+    td_target_batch = []
+    advantage_batch = []
+    episode_reward, done = 0, False
+    state = Env.servo.target(Nsteps=5)
+    print(state,episode_reward)
+    action = Env.servo.agent.actor.get_action(state)
+    action = np.clip(action, -Env.servo.agent.action_bound, Env.servo.agent.action_bound)
+    print(action)
+    next_state, reward, done, _ = Env.step(action=[action[0],0])
+    print(next_state, reward)
     bye(start_time=start_time)
